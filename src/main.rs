@@ -24,7 +24,8 @@ fn main(){
     let mut state: SystemState<Query<(&TestGraphVertex, &GraphLabel)>> = SystemState::new(&mut world);
     let query = state.get(&world);
 
-    let filtered: FilteredGraphQuery<'_, '_, '_, _, _, TestGraphVertex> = FilteredGraphQuery::new(&query);
+    let mut filtered: FilteredGraphQuery<'_, '_, '_, _, _, TestGraphVertex> = FilteredGraphQuery::new(&query);
+    filtered.add_filter(|label: &GraphLabel| {label.value < 20});
 
 }
 

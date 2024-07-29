@@ -8,34 +8,6 @@ pub struct GraphLabel {
     pub value: usize
 }
 
-#[derive(Component)]
-pub struct TestGraphVertex {
-    neighbours: Vec<(Entity,f32)>
-}
-
-impl TestGraphVertex{
-    pub fn new() -> Self{
-        Self{neighbours: Vec::new()}
-    }
-    pub fn new_with_edges(edges: Vec<(Entity, f32)>) -> Self{
-        Self{neighbours: edges}
-    }
-}
-
-impl GraphVertex for TestGraphVertex {
-    fn get_neighbours(&self) -> Vec<Entity>{
-        self.neighbours.iter().map(|(ent, _)| *ent).collect()
-    }
-    fn get_neighbours_with_weight(&self) -> Vec<(Entity, f32)> {
-        self.neighbours.clone()
-    }
-}
-
-
-pub trait GraphVertex : Component {
-    fn get_neighbours(&self) -> Vec<Entity>;
-    fn get_neighbours_with_weight(&self) -> Vec<(Entity, f32)>;
-}
 
 
 /// Error encountered when trying to determine_path on a set of (Entity, Option<Entity>) pairs where there is either a loop or a missing entity

@@ -10,13 +10,8 @@ use bevy::ecs::{
 
 use crate::{
     graph_functions::{
-        load_graph, 
-        bfs, 
-        dfs, 
-        dijkstra_search
-    }, 
-    GraphLabel, 
-    TestGraphVertex
+        load_graph, GraphFunctionExt
+    }, graph_vertex::StandardGraphVertex, GraphLabel
 };
 
 
@@ -33,15 +28,15 @@ fn breadth_first_search_test() {
     let entity_end = get_entity_with_label(&mut world, 5).expect("The given label should exist");
 
     //create system states so we can get the queries for testing
-    let mut vertex_sys_state: SystemState<Query<&TestGraphVertex>> = SystemState::new(&mut world);
+    let mut vertex_sys_state: SystemState<Query<&StandardGraphVertex>> = SystemState::new(&mut world);
     let mut label_sys_state: SystemState<Query<&GraphLabel>> = SystemState::new(&mut world);
 
     //get a query for the vertices and one for the labels as if inside a system
-    let vert_query = vertex_sys_state.get(&world);
+    let mut vert_query = vertex_sys_state.get(&world);
     let label_query = label_sys_state.get(&world);
 
     //run the algorithm and turn the result from Entities to Label values
-    let result = bfs(entity_start, entity_end, &vert_query).expect("Test graph should have a valid path between the test vertices");
+    let result = vert_query.bfs::<StandardGraphVertex>(entity_start, entity_end).expect("Test graph should have a valid path between the test vertices");
     let labels: Vec<usize> = result.into_iter()
     .filter_map(|ent| label_query.get(ent).ok().and_then(|b| Some(b.value))).collect();
 
@@ -59,15 +54,15 @@ fn depth_first_search_test() {
     let entity_end = get_entity_with_label(&mut world, 5).expect("The given label should exist");
 
     //create system states so we can get the queries for testing
-    let mut vertex_sys_state: SystemState<Query<&TestGraphVertex>> = SystemState::new(&mut world);
+    let mut vertex_sys_state: SystemState<Query<&StandardGraphVertex>> = SystemState::new(&mut world);
     let mut label_sys_state: SystemState<Query<&GraphLabel>> = SystemState::new(&mut world);
 
     //get a query for the vertices and one for the labels as if inside a system
-    let vert_query = vertex_sys_state.get(&world);
+    let mut vert_query = vertex_sys_state.get(&world);
     let label_query = label_sys_state.get(&world);
 
     //run the algorithm and turn the result from Entities to Label values
-    let result = dfs(entity_start, entity_end, &vert_query).expect("Test graph should have a valid path between the test vertices");
+    let result = vert_query.dfs::<StandardGraphVertex>(entity_start, entity_end).expect("Test graph should have a valid path between the test vertices");
     let labels: Vec<usize> = result.into_iter()
     .filter_map(|ent| label_query.get(ent).ok().and_then(|b| Some(b.value))).collect();
 
@@ -85,15 +80,15 @@ fn dijkstra_search_test() {
     let entity_end = get_entity_with_label(&mut world, 5).expect("The given label should exist");
 
     //create system states so we can get the queries for testing
-    let mut vertex_sys_state: SystemState<Query<&TestGraphVertex>> = SystemState::new(&mut world);
+    let mut vertex_sys_state: SystemState<Query<&StandardGraphVertex>> = SystemState::new(&mut world);
     let mut label_sys_state: SystemState<Query<&GraphLabel>> = SystemState::new(&mut world);
 
     //get a query for the vertices and one for the labels as if inside a system
-    let vert_query = vertex_sys_state.get(&world);
+    let mut vert_query = vertex_sys_state.get(&world);
     let label_query = label_sys_state.get(&world);
 
     //run the algorithm and turn the result from Entities to Label values
-    let result = dijkstra_search(entity_start, entity_end, &vert_query).expect("Test graph should have a valid path between the test vertices");
+    let result = vert_query.dijkstra_search::<StandardGraphVertex>(entity_start, entity_end).expect("Test graph should have a valid path between the test vertices");
     let labels: Vec<usize> = result.into_iter()
     .filter_map(|ent| label_query.get(ent).ok().and_then(|b| Some(b.value))).collect();
 

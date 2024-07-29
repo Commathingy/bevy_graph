@@ -1,24 +1,110 @@
-use bevy::{prelude::*, ecs::query::ReadOnlyWorldQuery, utils::{HashMap, HashSet}};
+use bevy::{ecs::query::{QueryData, QueryFilter}, prelude::*, utils::{HashMap, HashSet}};
 use priority_queue::PriorityQueue;
 use std::{collections::VecDeque, cmp::Reverse, fs::File, io::{BufReader, BufRead}};
-use crate::types::*;
+use crate::{graph_vertex::StandardGraphVertex, types::*};
+use crate::graph_vertex::GraphVertex;
 
 
 //TODO:
-//good docs!
+//good docs! (those already existing need to be changed too)
 //better tests
 //a negative edge weight algo
-//add a filter ability?
+//add a filter ability
+//more options for how we use extra types (the &C's)
+//-> would be nice if could use a (&C, &D) somehow
 
 
+pub trait GraphFunctionExt{
+    fn bfs<V: GraphVertex>(&mut self, start_ent: Entity, end_ent: Entity) -> Result<Vec<Entity>, GraphError>;
 
+    fn bfs_computed_end<V, C, F>(&mut self, start_ent: Entity, end_determiner: F) -> Result<Vec<Entity>, GraphError>
+    where V: GraphVertex, C: Component, F: Fn(&C) -> bool;
+
+    fn dfs<V: GraphVertex>(&mut self, start_ent: Entity, end_ent: Entity) -> Result<Vec<Entity>, GraphError>;
+
+    fn dfs_computed_end<V, C, F>(&mut self, start_ent: Entity, end_determiner: F) -> Result<Vec<Entity>, GraphError>
+    where V: GraphVertex, C: Component, F: Fn(&C) -> bool;
+
+    fn dijkstra_search<V: GraphVertex>(&mut self, start_ent: Entity, end_ent: Entity) -> Result<Vec<Entity>, GraphError>;
+
+    fn dijkstra_computed_end<V, C, F>(&mut self, start_ent: Entity, end_determiner: F) -> Result<Vec<Entity>, GraphError>
+    where V: GraphVertex, C: Component, F: Fn(&C) -> bool;
+
+    fn a_star_search<V, C, F>(&mut self, start_ent: Entity, end_ent: Entity, heuristic_determiner: F) -> Result<Vec<Entity>, GraphError> 
+    where V: GraphVertex, C: Component, F: Fn(&C, &C) -> Heuristic;
+
+    fn within_steps<V:GraphVertex>(&mut self, start_ent: Entity, max_steps: usize) -> Result<Vec<(Entity, usize)>, GraphError>;
+
+    fn within_distance<V:GraphVertex>(&mut self, start_ent: Entity, max_distance: f32) -> Result<Vec<(Entity, f32)>, GraphError>;
+
+    fn at_step<V:GraphVertex>(&mut self, start_ent: Entity, at_step: usize) -> Result<Vec<Entity>, GraphError>;
+}
+
+
+impl<'world, 'state, S: QueryData, T: QueryFilter> GraphFunctionExt for Query<'world, 'state, S, T>{
+    fn bfs<V: GraphVertex>(&mut self, start_ent: Entity, end_ent: Entity) -> Result<Vec<Entity>, GraphError> {
+        let mut lensed = self.transmute_lens::<&V>();
+        bfs(&lensed.query(), start_ent, end_ent)
+    }
+    
+    fn bfs_computed_end<V, C, F> (&mut self, start_ent: Entity, end_determiner: F) -> Result<Vec<Entity>, GraphError>
+    where V: GraphVertex, C: Component, F: for<'a> Fn(&'a C) -> bool {
+        let mut lensed = self.transmute_lens::<(&V, &C)>();
+        bfs_computed_end(&lensed.query(), start_ent, end_determiner)
+    }
+    
+    fn dfs<V: GraphVertex>(&mut self, start_ent: Entity, end_ent: Entity) -> Result<Vec<Entity>, GraphError> {
+        let mut lensed = self.transmute_lens::<&V>();
+        dfs(&lensed.query(), start_ent, end_ent)
+    }
+    
+    fn dfs_computed_end<V, C, F>(&mut self, start_ent: Entity, end_determiner: F) -> Result<Vec<Entity>, GraphError>
+    where V: GraphVertex, C: Component, F: Fn(&C) -> bool {
+        let mut lensed = self.transmute_lens::<(&V, &C)>();
+        dfs_computed_end(&lensed.query(), start_ent, end_determiner)
+    }
+    
+    fn dijkstra_search<V: GraphVertex>(&mut self, start_ent: Entity, end_ent: Entity) -> Result<Vec<Entity>, GraphError> {
+        let mut lensed = self.transmute_lens::<&V>();
+        dijkstra_search(&lensed.query(), start_ent, end_ent)
+    }
+    
+    fn dijkstra_computed_end<V, C, F>(&mut self, start_ent: Entity, end_determiner: F) -> Result<Vec<Entity>, GraphError>
+    where V: GraphVertex, C: Component, F: Fn(&C) -> bool {
+        let mut lensed = self.transmute_lens::<(&V, &C)>();
+        dijkstra_computed_end(&lensed.query(), start_ent, end_determiner)
+    }
+    
+    fn a_star_search<V, C, F>(&mut self, start_ent: Entity, end_ent: Entity, heuristic_determiner: F) -> Result<Vec<Entity>, GraphError> 
+    where V: GraphVertex, C: Component, F: Fn(&C, &C) -> Heuristic {
+        let mut lensed = self.transmute_lens::<(&V, &C)>();
+        a_star_search(&lensed.query(), start_ent, end_ent, heuristic_determiner)
+    }
+    
+    fn within_steps<V:GraphVertex>(&mut self, start_ent: Entity, max_steps: usize) -> Result<Vec<(Entity, usize)>, GraphError> {
+        let mut lensed = self.transmute_lens::<&V>();
+        within_steps(&lensed.query(), start_ent, max_steps)
+    }
+    
+    fn within_distance<V:GraphVertex>(&mut self, start_ent: Entity, max_distance: f32) -> Result<Vec<(Entity, f32)>, GraphError> {
+        let mut lensed = self.transmute_lens::<&V>();
+        within_distance(&lensed.query(), start_ent, max_distance)
+    }
+    
+    fn at_step<V:GraphVertex>(&mut self, start_ent: Entity, step: usize) -> Result<Vec<Entity>, GraphError> {
+        let mut lensed = self.transmute_lens::<&V>();
+        at_step(&lensed.query(), start_ent, step)
+        
+    }
+
+}
 
 
 
 /// Takes the last vertex in the provided vector and follows it's [optional](Option) value to the previous entity in the path.
 /// Terminates once it hits a [None]. Returns an [`InvalidPathError`] if there is a loop or a previous [entity](Entity) is not in the vector.
 /// 
-/// Returns the vector in reverse order
+/// Returns the path as a vector in reverse order
 fn determine_path(visited: HashMap<Entity, Option<Entity>>, final_vert: Entity) -> Result<Vec<Entity>, InvalidPathError>{
     let Some(mut to_follow) = visited.get(&final_vert) else {return Err(InvalidPathError)};
     let mut path = vec![final_vert];
@@ -38,7 +124,7 @@ fn determine_path(visited: HashMap<Entity, Option<Entity>>, final_vert: Entity) 
 #[allow(dead_code)]
 /// Helper function to load a graph from a file into a world
 /// 
-/// Used for testing the graph algorithms, reads from a graph file and adds a [TestGraphVertex] and [GraphLabel] for each vertex in the file.
+/// Used for testing the graph algorithms, reads from a graph file and adds a [StandardGraphVertex] and [GraphLabel] for each vertex in the file.
 pub(crate) fn load_graph(world: &mut World, graph_file: &str) -> Vec<Entity>{
     let file = File::open(graph_file).unwrap();
     let reader = BufReader::new(file);
@@ -63,7 +149,7 @@ pub(crate) fn load_graph(world: &mut World, graph_file: &str) -> Vec<Entity>{
         let mut current_ent = world.get_entity_mut(*entity_vec.get(pos).unwrap()).unwrap();
         //create the graphvert
         let edges = vec.into_iter().map(|(ind, weight)| (*entity_vec.get(ind).unwrap(), weight)).collect();
-        let graph_vert = TestGraphVertex::new_with_edges(edges);
+        let graph_vert = StandardGraphVertex::new_with_edges(edges);
         current_ent.insert((graph_vert,GraphLabel{value: pos}));
     });
     entity_vec
@@ -111,10 +197,10 @@ pub(crate) fn load_graph(world: &mut World, graph_file: &str) -> Vec<Entity>{
 /// [`bfs_computed_end`]: For a breadth-first search where the endpoint is not known at the start, but satisfies some condition
 /// 
 /// [`dijkstra_search`]: For a search algorithm that minimises the path's total edge weight
-pub fn bfs<V: GraphVertex, T:ReadOnlyWorldQuery>(
+pub fn bfs<V: GraphVertex>(
+    query: &Query<&V>,
     start_ent: Entity,
-    end_ent: Entity,
-    query: &Query<&V, T>
+    end_ent: Entity
 ) -> Result<Vec<Entity>, GraphError> {
 
     //test for invalid start or end
@@ -199,16 +285,15 @@ pub fn bfs<V: GraphVertex, T:ReadOnlyWorldQuery>(
 /// [`bfs`]: For a breadth-first search with a known endpoint
 /// 
 /// [`dijkstra_computed_end`]: For an edge weight-minimising path algorithm with an unknown endpoint
-pub fn bfs_computed_end<F, V, S, T> (
+pub fn bfs_computed_end<V, C, F> (
+    query: &Query<(&V, &C)>,
     start_ent: Entity,
-    end_determiner: F,
-    query: &Query<(&V, S), T>
+    end_determiner: F
 ) -> Result<Vec<Entity>, GraphError> 
 where
-    F: for<'a> Fn(S::Item<'a>) -> bool,
     V: GraphVertex,
-    S: ReadOnlyWorldQuery,
-    T: ReadOnlyWorldQuery
+    C: Component,
+    F: Fn(&C) -> bool,
 {
     //check if the start vertex is a valid end vertex
     let start_vert = query.get(start_ent)?;
@@ -280,10 +365,10 @@ where
 /// dfs computed end
 /// 
 /// TODO
-pub fn dfs<V: GraphVertex, T:ReadOnlyWorldQuery>(
+pub fn dfs<V: GraphVertex>(
+    query: &Query<&V>,
     start_ent: Entity,
-    end_ent: Entity,
-    query: &Query<&V, T>
+    end_ent: Entity
 ) -> Result<Vec<Entity>, GraphError> {
     //test for invalid start or end
     query.get(start_ent)?;
@@ -373,16 +458,15 @@ pub fn dfs<V: GraphVertex, T:ReadOnlyWorldQuery>(
 /// [`dfs`]: For a depth-first search with a known endpoint
 /// 
 /// [`bfs_computed_end`]: For an algorithm that finds a shortest path with an unknown endpoint
-pub fn dfs_computed_end<F, V, S, T> (
+pub fn dfs_computed_end<V, C, F> (
+    query: &Query<(&V, &C)>,
     start_ent: Entity,
-    end_determiner: F,
-    query: &Query<(&V, S), T>
+    end_determiner: F
 ) -> Result<Vec<Entity>, GraphError> 
 where
-    F: for<'a> Fn(S::Item<'a>) -> bool,
-    V: GraphVertex, 
-    S: ReadOnlyWorldQuery,
-    T: ReadOnlyWorldQuery
+    V: GraphVertex,
+    C: Component,
+    F: Fn(&C) -> bool,
 {
     let start_vert = query.get(start_ent)?;
     if end_determiner(start_vert.1) {return Ok(vec![start_ent])};
@@ -470,10 +554,10 @@ where
 /// [`bfs`]: For a breadth-first search with a known endpoint
 /// 
 /// [`a_star_search`]: For an A* approach to finding the shortest path
-pub fn dijkstra_search<V: GraphVertex, T:ReadOnlyWorldQuery>(
+pub fn dijkstra_search<V: GraphVertex>(
+    query: &Query<&V>,
     start_ent: Entity,
-    end_ent: Entity,
-    query: &Query<&V, T>,
+    end_ent: Entity
 ) -> Result<Vec<Entity>, GraphError> {
     //test for invalid start or end
     query.get(start_ent)?;
@@ -576,16 +660,15 @@ pub fn dijkstra_search<V: GraphVertex, T:ReadOnlyWorldQuery>(
 /// [`dijkstra_search`]: For Dijkstra's algorithm with a known endpoint
 /// 
 /// [`bfs_computed_end`]: For a breadth-first search with an unknown endpoint
-pub fn dijkstra_computed_end<F, V, S, T>(
+pub fn dijkstra_computed_end<V, C, F>(
+    query: &Query<(&V, &C)>,
     start_ent: Entity,
     end_determiner: F,
-    query: &Query<(&V, S), T>,
 ) -> Result<Vec<Entity>, GraphError> 
 where
-    F: for<'a> Fn(S::Item<'a>) -> bool,
     V: GraphVertex, 
-    S: ReadOnlyWorldQuery,
-    T: ReadOnlyWorldQuery
+    C: Component,
+    F: Fn(&C) -> bool,
 {
     query.get(start_ent)?;
 
@@ -651,17 +734,16 @@ where
 /// # See also
 /// 
 /// TODO
-pub fn a_star_search<F, V, S, T>(
+pub fn a_star_search<V, C, F>(
+    query: &Query<(&V, &C)>,
     start_ent: Entity,
     end_ent: Entity,
-    query: &Query<(&V, S), T>,
     heuristic_determiner: F
 ) -> Result<Vec<Entity>, GraphError> 
 where
-    F: for<'a> Fn(&S::Item<'a>, &S::Item<'a>) -> Heuristic,
-    V: GraphVertex, 
-    S: ReadOnlyWorldQuery,
-    T: ReadOnlyWorldQuery
+    V: GraphVertex,
+    C: Component,
+    F: Fn(&C, &C) -> Heuristic
 {
     query.get(start_ent)?;
     //get the data of the end vertex to be used for the heuristic calcs
@@ -741,10 +823,10 @@ where
 /// [`at_step`]: For vertices that are only at the given step.
 /// 
 /// [`within_distance`]: For vertices that are within a given distance, by edge weight.
-pub fn within_steps<V:GraphVertex, T:ReadOnlyWorldQuery>(
+pub fn within_steps<V: GraphVertex>(
+    query: &Query<&V>,
     start_ent: Entity,
-    max_steps: usize,
-    query: &Query<&V, T>
+    max_steps: usize
 ) -> Result<Vec<(Entity, usize)>, GraphError> {
 
     //vector of vertices that we want to check, alongside their distance from the start vertex
@@ -803,10 +885,10 @@ pub fn within_steps<V:GraphVertex, T:ReadOnlyWorldQuery>(
 /// # See also
 /// 
 /// [`within_steps`]: For vertices that are within a given number of steps, rather than by distance.
-pub fn within_distance<V:GraphVertex, T:ReadOnlyWorldQuery>(
+pub fn within_distance<V: GraphVertex>(
+    query: &Query<&V>,
     start_ent: Entity,
     max_distance: f32,
-    query: &Query<&V, T>
 ) -> Result<Vec<(Entity, f32)>, GraphError> {
 
     //test for a valid start
@@ -871,12 +953,12 @@ pub fn within_distance<V:GraphVertex, T:ReadOnlyWorldQuery>(
 /// # See also
 /// 
 /// [`within_steps`]: For a function to return vertices that are at most a certain number of steps away
-pub fn at_step<V:GraphVertex, T:ReadOnlyWorldQuery>(
+pub fn at_step<V:GraphVertex>(
+    query: &Query<&V>,
     start_ent: Entity,
     at_step: usize,
-    query: &Query<&V, T>
 ) -> Result<Vec<Entity>, GraphError> {
-    Ok(within_steps(start_ent, at_step, query)?.into_iter()
+    Ok(within_steps(query, start_ent, at_step)?.into_iter()
     .filter_map(|(ent, step)| if step == at_step {Some(ent)} else {None})
     .collect())
 }

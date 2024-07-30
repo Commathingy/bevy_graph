@@ -1,14 +1,17 @@
-use bevy::{prelude::{Component, Entity, Query}, utils::HashMap};
+use std::usize;
+
+use bevy::prelude::{Component, Entity, Query};
 
 use crate::graph_vertex::GraphVertex;
 
-use super::{helper::determine_path, GraphError};
+use super::{GraphError, GraphPath, VisitedNodes};
 
 
 /// Runs a depth-first search, starting at the start vertex and ending at the end vertex, returning the path in **reverse order**
 /// 
-/// Depth-first search on the directed graph with [vertices](GraphVertex) in the provided query. The resulting path will not necessarily be the shortest,
-/// if a shortest path is required, consider using [breadth-first search](bfs) or [Dijkstra's algorithm](dijkstra_search).
+/// Depth-first search on the directed graph with [vertices](GraphVertex) in the provided query. The resulting path will not necessarily be the shortest, 
+/// however, this function may take less time than breadth first search to find a path depending on the graph's structure.
+/// If a shortest path is required, consider using [breadth-first search](bfs) or [Dijkstra's algorithm](dijkstra_search).
 /// 
 /// # Errors
 /// 
@@ -47,47 +50,31 @@ pub fn dfs<V: GraphVertex>(
     query: &Query<&V>,
     start_ent: Entity,
     end_ent: Entity
-) -> Result<Vec<Entity>, GraphError> {
-    //test for invalid start or end
-    query.get(start_ent)?;
-    query.get(end_ent)?;
+) -> Result<GraphPath<()>, GraphError> {
+    let start_vert = query.get(start_ent)?;
 
-    if start_ent == end_ent {return Ok(vec![start_ent])};
+    if start_ent == end_ent {return Ok(GraphPath::single(start_ent, ()))}; //check for instant finish
 
-    //create the search queue. the next element to be checked is the one at the end of the list
-    //we will add to the end of the list to obtain the depth first behaviour
-    //the usize represents how many neighbours of this vertex we have visited
-    let mut search_queue: Vec<(Entity, &V, usize)> = vec![(start_ent, query.get(start_ent)?, 0)];
+    let mut search_queue: Vec<DepthNode<V>> = vec![DepthNode::new(start_ent, start_vert)];
+    let mut visited = VisitedNodes::new_from_start(start_ent);
 
-    //store the visited vertices, alongside the vertex that came before it
-    let mut path_previous: HashMap<Entity, Option<Entity>> = HashMap::new();
-    path_previous.insert(start_ent, None);
+    while let Some(mut node) = search_queue.pop() {
 
-    //loop while still vertices to check
-    while let Some((sv_ent, sv_vert, mut sv_neighbour_index)) = search_queue.pop() {
         //check if we have any neighbours left to search from this vertex
-        if let Some(&neighbour_ent) = sv_vert.get_neighbours().get(sv_neighbour_index){
-            //if there is a neighbour, we add one to this vertices "neighbour count (the .2)"
-            //and then add it back onto the queue
-            sv_neighbour_index += 1;
-            search_queue.push((sv_ent, sv_vert, sv_neighbour_index));
+        let Some(neighbour_ent) = node.get_next_neighbour() else {continue;};
 
-            //check if we found the end vertex
-            //if so, end the search and unravel the path
-            if neighbour_ent == end_ent {
-                path_previous.insert(neighbour_ent, Some(sv_ent));
-                return Ok(determine_path(path_previous, neighbour_ent).unwrap());
-            }
+        let previous = node.ent;
 
-            //check if this neighbour vertex has been visited before
-            //if it has, we ignore it
-            if path_previous.contains_key(&neighbour_ent) {continue;}
-            //otherwise we add it to our search queue, as the next vertex to be checked
-            else if let Ok(neighbour_vert) = query.get(neighbour_ent){
-                path_previous.insert(neighbour_ent, Some(sv_ent));
-                search_queue.push((neighbour_ent, neighbour_vert, 0));
-            }
-        }
+        if neighbour_ent == end_ent {return Ok(visited.determine_path(neighbour_ent).unwrap())}
+
+
+        search_queue.push(node); //push back onto queue to be checked again later
+
+        if visited.is_visited(&neighbour_ent) {continue;}
+
+        let Ok(neighbour_vert) = query.get(neighbour_ent) else {continue;};
+        visited.insert(neighbour_ent, previous, 0, 0.0);   
+        search_queue.push(DepthNode::new(neighbour_ent, neighbour_vert));
     }
 
     //if we get to this point, then we must have found no path
@@ -136,55 +123,109 @@ pub fn dfs<V: GraphVertex>(
 /// [`dfs`]: For a depth-first search with a known endpoint
 /// 
 /// [`bfs_computed_end`]: For an algorithm that finds a shortest path with an unknown endpoint
-pub fn dfs_computed_end<V, C, F> (
-    query: &Query<(&V, &C)>,
+pub fn dfs_computed_end<V, CE, FE> (
+    query: &Query<(&V, &CE)>,
     start_ent: Entity,
-    end_determiner: F
-) -> Result<Vec<Entity>, GraphError> 
+    end_determiner: FE
+) -> Result<GraphPath<()>, GraphError> 
 where
     V: GraphVertex,
-    C: Component,
-    F: Fn(&C) -> bool,
+    CE: Component,
+    FE: Fn(&CE) -> bool,
 {
     let start_vert = query.get(start_ent)?;
-    if end_determiner(start_vert.1) {return Ok(vec![start_ent])};
+    if end_determiner(start_vert.1) {return Ok(GraphPath::single(start_ent, ()))}; //check for instant finish
 
-    //create the search queue. the next element to be checked is the one at the end of the list
-    //we will add to the end of the list to obtain the depth first behaviour
-    //the usize represents how many neighbours of this vertex we have visited
-    let mut search_queue: Vec<(Entity, &V, usize)> = vec![(start_ent, start_vert.0 , 0)];
+    let mut search_queue: Vec<DepthNode<V>> = vec![DepthNode::new(start_ent, start_vert.0)];
+    let mut visited = VisitedNodes::new_from_start(start_ent);
 
-    //store the visited vertices, alongside the vertex that came before it
-    let mut path_previous: HashMap<Entity, Option<Entity>> = HashMap::new();
-    path_previous.insert(start_ent, None);
-
-    //loop while still vertices to check
-    while let Some((sv_ent, sv_vert, mut sv_neighbour_index)) = search_queue.pop() {
+    while let Some(mut node) = search_queue.pop() {
 
         //check if we have any neighbours left to search from this vertex
-        if let Some(&neighbour_ent) = sv_vert.get_neighbours().get(sv_neighbour_index){
-            //if there is a neighbour, we add one to this vertices "neighbour count (the .2)"
-            //and then add it back onto the queue
-            sv_neighbour_index += 1;
-            search_queue.push((sv_ent, sv_vert, sv_neighbour_index));
+        let Some(neighbour_ent) = node.get_next_neighbour() else {continue;};
 
-            //check if this neighbour vertex has been visited before
-            //if it has, we ignore it
-            if path_previous.contains_key(&neighbour_ent) {continue;}
+        let previous = node.ent;
+        search_queue.push(node); //push back onto queue to be checked again later
 
-            //otherwise we add it to our search queue, as the next vertex to be checked
-            else if let Ok((neighbour_vert, neighbour_data)) = query.get(neighbour_ent){
-                //add this vertex to the path_previous map
-                path_previous.insert(neighbour_ent, Some(sv_ent));
-                //check if we found the end vertex
-                if end_determiner(neighbour_data){return Ok(determine_path(path_previous, neighbour_ent).unwrap());}
-                //add to the search queue
-                search_queue.push((neighbour_ent, neighbour_vert, 0));
-            }
-        }
+        if visited.is_visited(&neighbour_ent) {continue;}
+
+        let Ok((neighbour_vert, neighbour_data)) = query.get(neighbour_ent) else {continue;};
+        visited.insert(neighbour_ent, previous, 0, 0.0);   
+        if end_determiner(neighbour_data){return Ok(visited.determine_path(neighbour_ent).unwrap());}
+        search_queue.push(DepthNode::new(neighbour_ent, neighbour_vert));
     }
 
     //if we get to this point, then we must have found no path
     Err(GraphError::NoPath)
 }
 
+
+pub fn dfs_multiple_end<V, CE, FE> (
+    query: &Query<(&V, &CE)>,
+    start_ent: Entity,
+    end_determiner: FE,
+    max_ends: Option<usize>
+) -> Result<Vec<GraphPath<()>>, GraphError> 
+where
+    V: GraphVertex,
+    CE: Component,
+    FE: Fn(&CE) -> bool,
+{
+    let max_paths = max_ends.unwrap_or(usize::MAX);
+    let start_vert = query.get(start_ent)?;
+
+    let mut found_paths = Vec::new();
+    if end_determiner(start_vert.1) {found_paths.push(GraphPath::single(start_ent, ()))};
+
+    let mut search_queue: Vec<DepthNode<V>> = vec![DepthNode::new(start_ent, start_vert.0)];
+    let mut visited = VisitedNodes::new_from_start(start_ent);
+
+    while let Some(mut node) = search_queue.pop() {
+
+        if found_paths.len() == max_paths {break;} 
+
+        //check if we have any neighbours left to search from this vertex
+        let Some(neighbour_ent) = node.get_next_neighbour() else {continue;};
+
+        let previous = node.ent;
+        search_queue.push(node); //push back onto queue to be checked again later
+
+        if visited.is_visited(&neighbour_ent) {continue;}
+
+        let Ok((neighbour_vert, neighbour_data)) = query.get(neighbour_ent) else {continue;};
+        visited.insert(neighbour_ent, previous, 0, 0.0);   
+        if end_determiner(neighbour_data){found_paths.push(visited.determine_path(neighbour_ent).unwrap());}
+        search_queue.push(DepthNode::new(neighbour_ent, neighbour_vert));
+    }
+
+    //if we get to this point, then we must have found no path
+    Ok(found_paths)
+
+}
+
+
+
+
+
+
+struct DepthNode<'a, V>{
+    pub ent: Entity,
+    pub vertex: &'a V,
+    pub neighbours_visited: usize,
+}
+
+impl<'a, V:GraphVertex> DepthNode<'a, V>{
+    fn new(ent: Entity, vertex: &'a V) -> Self {
+        Self {
+            ent, 
+            vertex, 
+            neighbours_visited: 0
+        }
+    }
+
+    fn get_next_neighbour(&mut self) -> Option<Entity>{
+        let to_visit =  self.neighbours_visited;
+        self.neighbours_visited += 1;
+        self.vertex.get_neighbours().get(to_visit).map(|val| *val)
+    }
+}

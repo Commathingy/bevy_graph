@@ -1,10 +1,10 @@
 use std::{fs::File, io::{BufRead, BufReader}};
 
-use bevy::{prelude::{Entity, World}, utils::HashMap};
+use bevy::prelude::{Entity, World};
 
 use crate::graph_vertex::StandardGraphVertex;
 
-use super::{GraphLabel, InvalidPathError};
+use super::GraphLabel;
 
 
 
@@ -13,21 +13,6 @@ use super::{GraphLabel, InvalidPathError};
 /// Terminates once it hits a [None]. Returns an [`InvalidPathError`] if there is a loop or a previous [entity](Entity) is not in the vector.
 /// 
 /// Returns the path as a vector in reverse order
-pub(crate) fn determine_path(visited: HashMap<Entity, Option<Entity>>, final_vert: Entity) -> Result<Vec<Entity>, InvalidPathError>{
-    let Some(mut to_follow) = visited.get(&final_vert) else {return Err(InvalidPathError)};
-    let mut path = vec![final_vert];
-    let max_length = visited.len();
-    while to_follow.is_some(){
-        path.push(to_follow.unwrap());
-        to_follow = match visited.get(&to_follow.unwrap()){
-            Some(val) => val,
-            None => return Err(InvalidPathError)
-        };
-        //check for a loop
-        if path.len() > max_length {return Err(InvalidPathError)}
-    }
-    Ok(path)
-}
 
 #[allow(dead_code)]
 /// Helper function to load a graph from a file into a world

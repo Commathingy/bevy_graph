@@ -1,18 +1,11 @@
 use std::{error::Error, fmt::Display, ops::Add};
 
-use bevy::{prelude::*, ecs::query::QueryEntityError};
+use bevy::{ecs::query::QueryEntityError, prelude::*, utils::HashMap};
 
 
 #[derive(Component)]
 pub struct GraphLabel {
     pub value: usize
-}
-
-pub enum SearchLimits{
-    None,
-    MaxSteps(u64),
-    MaxDistance(f32),
-    MaxEnds(u64)
 }
 
 
@@ -109,3 +102,69 @@ impl Ord for PathWeight{
 }
 
 
+pub struct GraphPath<D>{
+    path: Vec<(Entity, D)>
+}
+
+impl<D> GraphPath<D>{
+    pub fn new(path: Vec<(Entity,D)>) -> Self {
+        Self{path}
+    }
+
+    pub fn single(start_ent: Entity, val: D) -> Self {
+        Self { path: vec![(start_ent, val)] }
+    }
+}
+
+pub struct VisitedNodes{
+    nodes: HashMap<Entity, (Option<Entity>, u64, f32)>
+}
+
+impl VisitedNodes{
+    pub fn new_from_start(start_ent: Entity) -> Self{
+        let mut nodes = HashMap::new();
+        nodes.insert(start_ent, (None, 0, 0.0));
+        Self{nodes}
+    }
+
+    pub fn is_visited(&self, ent: &Entity) -> bool {
+        self.nodes.contains_key(ent)
+    }
+
+    pub fn insert(&mut self, ent: Entity, previous: Entity, step: u64, dist: f32) {
+        self.nodes.insert(ent, (Some(previous), step, dist));
+    }
+
+    pub fn determine_path(&self, final_vert: Entity) -> Result<GraphPath<()>, InvalidPathError> {
+        let Some(&(mut to_follow, _, _)) = self.nodes.get(&final_vert) else {return Err(InvalidPathError)};
+        let mut path = vec![(final_vert, ())];
+        let max_length = self.nodes.len();
+        while to_follow.is_some(){
+            path.push((to_follow.unwrap(), ()));
+            to_follow = match self.nodes.get(&to_follow.unwrap()){
+                Some(&(val, _, _)) => val,
+                None => return Err(InvalidPathError)
+            };
+            //check for a loop
+            if path.len() > max_length {return Err(InvalidPathError)}
+        }
+        Ok(GraphPath::new(path))
+    }
+
+    pub fn determine_path_weighted(&self, final_vert: Entity) -> Result<GraphPath<f32>, InvalidPathError> {
+        let Some(&(mut to_follow, _, mut dist)) = self.nodes.get(&final_vert) else {return Err(InvalidPathError)};
+        let mut path = vec![(final_vert, dist)];
+        let max_length = self.nodes.len();
+        while to_follow.is_some(){
+            let prev = to_follow.unwrap();
+            (to_follow, dist) = match self.nodes.get(&to_follow.unwrap()){
+                Some(&(val, _, dist)) => (val, dist),
+                None => return Err(InvalidPathError)
+            };
+            path.push((prev, dist));
+            //check for a loop
+            if path.len() > max_length {return Err(InvalidPathError)}
+        }
+        Ok(GraphPath::new(path))
+    }
+}

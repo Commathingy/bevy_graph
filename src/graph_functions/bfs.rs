@@ -1,14 +1,10 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, u64};
 
-use bevy::{prelude::{Component, Entity, Query}, utils::HashMap};
+use bevy::prelude::{Component, Entity, Query};
 
 use crate::graph_vertex::GraphVertex;
 
-use super::{helper::determine_path, GraphError};
-
-
-
-
+use super::{GraphError, GraphPath, VisitedNodes};
 
 
 
@@ -57,38 +53,25 @@ pub fn bfs<V: GraphVertex>(
     query: &Query<&V>,
     start_ent: Entity,
     end_ent: Entity
-) -> Result<Vec<Entity>, GraphError> {
+) -> Result<GraphPath<()>, GraphError> {
 
-    //test for invalid start or end
-    query.get(start_ent)?;
-    query.get(end_ent)?;
+    if start_ent == end_ent {return Ok(GraphPath::single(start_ent, ()))};
 
-    if start_ent == end_ent {return Ok(vec![start_ent])};
-
-    //create the search queue. the next element to be checked is the one at the start of the list
-    //we will add to the end of the list to obtain the breadth first behaviour
     let mut search_queue: VecDeque<Entity> = VecDeque::from([start_ent]);
-
-    //store the visited vertices, alongside the vertex that came before it
-    let mut path_previous: HashMap<Entity, Option<Entity>> = HashMap::new();
-    path_previous.insert(start_ent, None);
+    let mut visited: VisitedNodes = VisitedNodes::new_from_start(start_ent);
 
     //loop while still vertices to check
     while let Some(sv_ent) = search_queue.pop_front() {
         let Ok(sv_vert) = query.get(sv_ent) else {continue;};
-        //loop over this vertex's neighbours
-        for neighbour_ent in sv_vert.get_neighbours(){
-            //check if the neighbour is the final vertex, in which case we compute the path and return it
-            if neighbour_ent == end_ent {
-                path_previous.insert(neighbour_ent, Some(sv_ent));
-                return Ok(determine_path(path_previous, neighbour_ent)?);
-            }
 
-            //otherwise check if this vertex is already searched, adding it to the search if not
-            if !path_previous.contains_key(&neighbour_ent) {
-                path_previous.insert(neighbour_ent, Some(sv_ent));
-                search_queue.push_back(neighbour_ent);
-            }
+        for neighbour_ent in sv_vert.get_neighbours(){
+            
+            if visited.is_visited(&neighbour_ent) {continue;}
+            visited.insert(neighbour_ent, sv_ent, 0, 0.0);
+
+            if neighbour_ent == end_ent {return Ok(visited.determine_path(neighbour_ent).expect("The created path should be valid"));}
+
+            search_queue.push_back(neighbour_ent);
         }
     }
     //if we get to this point, then we must have found no path
@@ -145,40 +128,96 @@ pub fn bfs_computed_end<V, C, F> (
     query: &Query<(&V, &C)>,
     start_ent: Entity,
     end_determiner: F
-) -> Result<Vec<Entity>, GraphError> 
+) -> Result<GraphPath<()>, GraphError> 
 where
     V: GraphVertex,
     C: Component,
     F: Fn(&C) -> bool,
 {
-    //check if the start vertex is a valid end vertex
     let start_vert = query.get(start_ent)?;
-    if end_determiner(start_vert.1) {return Ok(vec![start_ent])};
-    //create the search queue. the next element to be checked is the one at the start of the list
-    //we will add to the end of the list to obtain the breadth first behaviour
-    let mut search_queue: VecDeque<(Entity, &V)> = VecDeque::from([(start_ent, start_vert.0)]);
+    if end_determiner(start_vert.1) {return Ok(GraphPath::single(start_ent, ()))};
 
-    //store the visited vertices, alongside the vertex that came before it
-    let mut path_previous: HashMap<Entity, Option<Entity>> = HashMap::new();
-    path_previous.insert(start_ent, None);
+    let mut search_queue: VecDeque<BreadthNode<V>> = VecDeque::from([BreadthNode::new(start_ent, start_vert.0, 0)]);
+    let mut visited: VisitedNodes = VisitedNodes::new_from_start(start_ent);
 
     //loop while still vertices to check
-    while let Some((sv_ent, sv_vert)) = search_queue.pop_front() {
-        //loop over this vertex's neighbours
-        for neighbour_ent in sv_vert.get_neighbours(){
+    while let Some(node) = search_queue.pop_front() {
 
-            //check if this vertex is already searched, if so we ignore it
-            if path_previous.contains_key(&neighbour_ent) {continue;}
+        for neighbour_ent in node.vertex.get_neighbours(){
 
-            else if let Ok((neighbour_vert, neighbour_data)) = query.get(start_ent){
-                path_previous.insert(neighbour_ent, Some(sv_ent));
-                //check if this neighbour is a valid end vertex
-                if end_determiner(neighbour_data) {return Ok(determine_path(path_previous, neighbour_ent).unwrap());}
-                search_queue.push_back((neighbour_ent, neighbour_vert));
-            }
+            if visited.is_visited(&neighbour_ent) {continue;}
+            visited.insert(neighbour_ent, node.ent, node.step + 1, 0.0);
+
+            let Ok((neighbour_vert, neighbour_data)) = query.get(start_ent) else {continue;};
+
+            if end_determiner(neighbour_data) {return Ok(visited.determine_path(neighbour_ent).expect("The created path sould be valid"));}
+            search_queue.push_back(BreadthNode::new(neighbour_ent, neighbour_vert, node.step + 1));
         }
     }
 
-    //if we get to this point, then we must have found no path
     Err(GraphError::NoPath)
+}
+
+pub fn dfs_multiple_end<V, CE, FE> (
+    query: &Query<(&V, &CE)>,
+    start_ent: Entity,
+    end_determiner: FE,
+    max_ends: Option<usize>,
+    max_steps: Option<u64>
+) -> Result<Vec<GraphPath<()>>, GraphError> 
+where
+    V: GraphVertex,
+    CE: Component,
+    FE: Fn(&CE) -> bool,
+{
+    let max_steps = max_steps.unwrap_or(u64::MAX);
+    let max_paths = max_ends.unwrap_or(usize::MAX);
+
+    let mut found_paths = Vec::new();
+
+    let start_vert = query.get(start_ent)?;
+    if end_determiner(start_vert.1) {found_paths.push(GraphPath::single(start_ent, ()))};
+
+    let mut search_queue: VecDeque<BreadthNode<V>> = VecDeque::from([BreadthNode::new(start_ent, start_vert.0, 0)]);
+    let mut visited: VisitedNodes = VisitedNodes::new_from_start(start_ent);
+
+    //loop while still vertices to check
+    while let Some(node) = search_queue.pop_front() {
+
+        if node.step == max_steps {continue;}
+
+        for neighbour_ent in node.vertex.get_neighbours(){
+
+            if found_paths.len() == max_paths {return Ok(found_paths)}
+
+            if visited.is_visited(&neighbour_ent) {continue;}
+            visited.insert(neighbour_ent, node.ent, node.step + 1, 0.0);
+
+            let Ok((neighbour_vert, neighbour_data)) = query.get(start_ent) else {continue;};
+
+            if end_determiner(neighbour_data) {found_paths.push(visited.determine_path(neighbour_ent).expect("The created path sould be valid"));}
+            search_queue.push_back(BreadthNode::new(neighbour_ent, neighbour_vert, node.step + 1));
+        }
+    }
+
+    Ok(found_paths)
+
+}
+
+
+
+struct BreadthNode<'a, V>{
+    pub ent: Entity,
+    pub vertex: &'a V,
+    pub step: u64,
+}
+
+impl<'a, V:GraphVertex> BreadthNode<'a, V>{
+    fn new(ent: Entity, vertex: &'a V, step: u64) -> Self {
+        Self {
+            ent, 
+            vertex, 
+            step
+        }
+    }
 }

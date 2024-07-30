@@ -19,6 +19,7 @@ use neighbourhood::*;
 
 
 //TODO:
+//should VisitedNodes really have a steps field? -> unused for limits in bfs/dfs
 //make Vec<Entity> a new type (eg Path)
 //good docs! (those already existing need to be changed too)
 //better tests

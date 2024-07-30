@@ -64,16 +64,14 @@ pub fn dfs<V: GraphVertex>(
         let Some(neighbour_ent) = node.get_next_neighbour() else {continue;};
 
         let previous = node.ent;
-
-        if neighbour_ent == end_ent {return Ok(visited.determine_path(neighbour_ent).unwrap())}
-
-
         search_queue.push(node); //push back onto queue to be checked again later
 
         if visited.is_visited(&neighbour_ent) {continue;}
+        visited.insert(neighbour_ent, previous, 0, 0.0);
+
+        if neighbour_ent == end_ent {return Ok(visited.determine_path(neighbour_ent).expect("The created path should be valid"))}
 
         let Ok(neighbour_vert) = query.get(neighbour_ent) else {continue;};
-        visited.insert(neighbour_ent, previous, 0, 0.0);   
         search_queue.push(DepthNode::new(neighbour_ent, neighbour_vert));
     }
 
@@ -151,7 +149,7 @@ where
 
         let Ok((neighbour_vert, neighbour_data)) = query.get(neighbour_ent) else {continue;};
         visited.insert(neighbour_ent, previous, 0, 0.0);   
-        if end_determiner(neighbour_data){return Ok(visited.determine_path(neighbour_ent).unwrap());}
+        if end_determiner(neighbour_data){return Ok(visited.determine_path(neighbour_ent).expect("The created path should be valid"));}
         search_queue.push(DepthNode::new(neighbour_ent, neighbour_vert));
     }
 

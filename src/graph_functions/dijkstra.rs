@@ -5,7 +5,7 @@ use priority_queue::PriorityQueue;
 
 use crate::graph_vertex::GraphVertex;
 
-use super::{helper::determine_path, GraphError, PathWeight};
+use super::{GraphError, GraphPath, PathWeight};
 
 
 /// Runs Dijkstra's algorithm to find the path minimising total edge weight between two vertices, returning the path in **reverse order**
@@ -55,7 +55,7 @@ pub fn dijkstra_search<V: GraphVertex>(
     query: &Query<&V>,
     start_ent: Entity,
     end_ent: Entity
-) -> Result<Vec<Entity>, GraphError> {
+) -> Result<GraphPath<f32>, GraphError> {
     //test for invalid start or end
     query.get(start_ent)?;
     query.get(end_ent)?;
@@ -161,7 +161,7 @@ pub fn dijkstra_computed_end<V, C, F>(
     query: &Query<(&V, &C)>,
     start_ent: Entity,
     end_determiner: F,
-) -> Result<Vec<Entity>, GraphError> 
+) -> Result<GraphPath<f32>, GraphError> 
 where
     V: GraphVertex, 
     C: Component,

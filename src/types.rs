@@ -135,6 +135,10 @@ impl VisitedNodes{
         self.nodes.insert(ent, (Some(previous), step, dist));
     }
 
+    pub fn set_previous(&mut self, ent: Entity, prev_ent: Entity, new_weight: f32){
+        self.nodes.entry(ent).insert((Some(prev_ent), 0, new_weight));
+    }
+
     pub fn determine_path(&self, final_vert: Entity) -> Result<GraphPath<()>, InvalidPathError> {
         let Some(&(mut to_follow, _, _)) = self.nodes.get(&final_vert) else {return Err(InvalidPathError)};
         let mut path = vec![(final_vert, ())];

@@ -9,9 +9,7 @@ use bevy::ecs::{
 };
 
 use crate::{
-    graph_functions::{
-        load_graph, GraphFunctionExt
-    }, graph_vertex::StandardGraphVertex, GraphLabel
+    graph_functions::{helper::load_graph, GraphFunctionExt}, graph_vertex::StandardGraphVertex, GraphLabel
 };
 
 

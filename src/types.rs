@@ -8,6 +8,12 @@ pub struct GraphLabel {
     pub value: usize
 }
 
+pub enum SearchLimits{
+    None,
+    MaxSteps(u64),
+    MaxDistance(f32),
+    MaxEnds(u64)
+}
 
 
 /// Error encountered when trying to determine_path on a set of (Entity, Option<Entity>) pairs where there is either a loop or a missing entity

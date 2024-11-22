@@ -58,7 +58,7 @@ pub fn within_steps<V: GraphVertex>(
             //check if we have checked this entity before, skipping this iteration if so
             if !seen.insert(neighbour){continue;}
             //otherwise add it to the valid list and to_view queue
-            if let Ok(vert) = query.get(start_ent){
+            if let Ok(vert) = query.get(neighbour){
                 to_view.push_back(vert);
                 valid.push((neighbour, current_step+1));
             }
